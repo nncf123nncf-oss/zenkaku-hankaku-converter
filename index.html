@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全角⇄半角変換ツール</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --text-1: #1c1c1c;
+    --text-2: #5b5b5b;
+    --text-3: #8a8a8a;
+    --accent: #7c3aed;
+    --accent-contrast: #ffffff;
+    --danger: #c0392b;
+    --border: #e6e4e1;
+    --radius: 8px;
+    --space-1: 8px;
+    --space-2: 16px;
+    --space-3: 24px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: var(--space-3) var(--space-2) 64px;
+  }
+  main {
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0;
+  }
+  .lead {
+    font-size: 14px;
+    color: var(--text-2);
+    margin: 0;
+    line-height: 1.6;
+  }
+  label.field-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-2);
+    display: block;
+    margin-bottom: 4px;
+  }
+  textarea {
+    width: 100%;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    color: var(--text-1);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--space-1) 12px;
+    resize: vertical;
+    line-height: 1.6;
+  }
+  textarea:read-only {
+    background: #f5f4f2;
+    color: var(--text-2);
+  }
+  .checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px var(--space-2);
+  }
+  .checks label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--text-1);
+    white-space: nowrap;
+  }
+  .checks input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+  }
+  .btn-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  button.btn {
+    width: 100%;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 12px var(--space-2);
+    border-radius: var(--radius);
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-contrast);
+    cursor: pointer;
+  }
+  button.btn:active {
+    transform: translateY(1px);
+  }
+  button.btn-secondary {
+    background: var(--surface);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    font-weight: 700;
+  }
+  .error {
+    font-size: 13px;
+    color: var(--danger);
+    line-height: 1.5;
+  }
+  .copy-msg {
+    font-size: 13px;
+    color: var(--accent);
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>全角⇄半角変換ツール</h1>
+  <p class="lead">英数字・記号・カナの全角と半角がバラバラなとき、まとめて統一します。</p>
+
+  <div>
+    <label class="field-label" for="input">変換したい文字</label>
+    <textarea id="input" rows="6" placeholder="ここに文字を貼り付けてください（例: ＡＢＣ－１２３ ｱｲｳｴｵ）"></textarea>
+  </div>
+
+  <div class="checks">
+    <label><input type="checkbox" id="chk-alnum" checked> 英数字</label>
+    <label><input type="checkbox" id="chk-symbol" checked> 記号</label>
+    <label><input type="checkbox" id="chk-kana" checked> カナ</label>
+  </div>
+
+  <div id="error" class="error" hidden></div>
+
+  <div class="btn-row">
+    <button id="btn-to-half" class="btn" type="button">全角 → 半角</button>
+    <button id="btn-to-full" class="btn" type="button">半角 → 全角</button>
+  </div>
+
+  <div>
+    <label class="field-label" for="output">変換結果</label>
+    <textarea id="output" rows="6" readonly placeholder="ここに結果が表示されます"></textarea>
+  </div>
+
+  <div class="btn-row">
+    <button id="btn-copy" class="btn btn-secondary" type="button">結果をコピー</button>
+    <div id="copy-msg" class="copy-msg" hidden>コピーしました</div>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var FULLWIDTH_OFFSET = 0xFEE0;
+
+  function isFullWidthAlnum(cp) {
+    return (cp >= 0xFF10 && cp <= 0xFF19) ||
+           (cp >= 0xFF21 && cp <= 0xFF3A) ||
+           (cp >= 0xFF41 && cp <= 0xFF5A);
+  }
+  function isHalfWidthAlnum(cp) {
+    return (cp >= 0x30 && cp <= 0x39) ||
+           (cp >= 0x41 && cp <= 0x5A) ||
+           (cp >= 0x61 && cp <= 0x7A);
+  }
+  function isFullWidthSymbolRange(cp) {
+    return cp >= 0xFF01 && cp <= 0xFF5E && !isFullWidthAlnum(cp);
+  }
+  function isHalfWidthSymbolRange(cp) {
+    return cp >= 0x21 && cp <= 0x7E && !isHalfWidthAlnum(cp);
+  }
+
+  // --- カナ変換テーブル ---
+  var KANA_BASE_HALF = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝｧｨｩｪｫｬｭｮｯｰ｡､｢｣･";
+  var KANA_BASE_FULL = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンァィゥェォャュョッー。、「」・";
+  var VOICED_HALF = ["ｳ","ｶ","ｷ","ｸ","ｹ","ｺ","ｻ","ｼ","ｽ","ｾ","ｿ","ﾀ","ﾁ","ﾂ","ﾃ","ﾄ","ﾊ","ﾋ","ﾌ","ﾍ","ﾎ"];
+  var VOICED_FULL = ["ヴ","ガ","ギ","グ","ゲ","ゴ","ザ","ジ","ズ","ゼ","ゾ","ダ","ヂ","ヅ","デ","ド","バ","ビ","ブ","ベ","ボ"];
+  var SEMI_HALF = ["ﾊ","ﾋ","ﾌ","ﾍ","ﾎ"];
+  var SEMI_FULL = ["パ","ピ","プ","ペ","ポ"];
+
+  var half2fullBase = {};
+  var full2halfBase = {};
+  for (var i = 0; i < KANA_BASE_HALF.length; i++) {
+    half2fullBase[KANA_BASE_HALF[i]] = KANA_BASE_FULL[i];
+    full2halfBase[KANA_BASE_FULL[i]] = KANA_BASE_HALF[i];
+  }
+  var half2fullVoiced = {};
+  var full2halfVoiced = {};
+  for (var v = 0; v < VOICED_HALF.length; v++) {
+    half2fullVoiced[VOICED_HALF[v] + "ﾞ"] = VOICED_FULL[v];
+    full2halfVoiced[VOICED_FULL[v]] = VOICED_HALF[v] + "ﾞ";
+  }
+  var half2fullSemi = {};
+  var full2halfSemi = {};
+  for (var s = 0; s < SEMI_HALF.length; s++) {
+    half2fullSemi[SEMI_HALF[s] + "ﾟ"] = SEMI_FULL[s];
+    full2halfSemi[SEMI_FULL[s]] = SEMI_HALF[s] + "ﾟ";
+  }
+
+  function halfKanaToFull(str) {
+    var result = "";
+    for (var i = 0; i < str.length; i++) {
+      var c = str[i];
+      var next = str[i + 1];
+      var combo = c + (next || "");
+      if (next === "ﾞ" && half2fullVoiced[combo]) {
+        result += half2fullVoiced[combo];
+        i++;
+        continue;
+      }
+      if (next === "ﾟ" && half2fullSemi[combo]) {
+        result += half2fullSemi[combo];
+        i++;
+        continue;
+      }
+      result += half2fullBase[c] || c;
+    }
+    return result;
+  }
+
+  function fullKanaToHalf(str) {
+    var result = "";
+    for (var i = 0; i < str.length; i++) {
+      var c = str[i];
+      if (full2halfVoiced[c]) {
+        result += full2halfVoiced[c];
+      } else if (full2halfSemi[c]) {
+        result += full2halfSemi[c];
+      } else if (full2halfBase[c]) {
+        result += full2halfBase[c];
+      } else {
+        result += c;
+      }
+    }
+    return result;
+  }
+
+  // --- 英数字・記号（半角スペース含む）の変換 ---
+  function toHalfWidthAlnumSymbol(str, opts) {
+    var result = "";
+    for (var i = 0; i < str.length; i++) {
+      var ch = str[i];
+      var cp = ch.codePointAt(0);
+      if (opts.alnum && isFullWidthAlnum(cp)) {
+        result += String.fromCodePoint(cp - FULLWIDTH_OFFSET);
+      } else if (opts.symbol && cp === 0x3000) {
+        result += " ";
+      } else if (opts.symbol && isFullWidthSymbolRange(cp)) {
+        result += String.fromCodePoint(cp - FULLWIDTH_OFFSET);
+      } else {
+        result += ch;
+      }
+    }
+    return result;
+  }
+
+  function toFullWidthAlnumSymbol(str, opts) {
+    var result = "";
+    for (var i = 0; i < str.length; i++) {
+      var ch = str[i];
+      var cp = ch.codePointAt(0);
+      if (opts.alnum && isHalfWidthAlnum(cp)) {
+        result += String.fromCodePoint(cp + FULLWIDTH_OFFSET);
+      } else if (opts.symbol && cp === 0x20) {
+        result += "　";
+      } else if (opts.symbol && isHalfWidthSymbolRange(cp)) {
+        result += String.fromCodePoint(cp + FULLWIDTH_OFFSET);
+      } else {
+        result += ch;
+      }
+    }
+    return result;
+  }
+
+  function convertToHalf(str, opts) {
+    var out = toHalfWidthAlnumSymbol(str, opts);
+    if (opts.kana) out = fullKanaToHalf(out);
+    return out;
+  }
+  function convertToFull(str, opts) {
+    var out = toFullWidthAlnumSymbol(str, opts);
+    if (opts.kana) out = halfKanaToFull(out);
+    return out;
+  }
+
+  // --- UI ---
+  var inputEl = document.getElementById("input");
+  var outputEl = document.getElementById("output");
+  var errorEl = document.getElementById("error");
+  var copyMsgEl = document.getElementById("copy-msg");
+  var chkAlnum = document.getElementById("chk-alnum");
+  var chkSymbol = document.getElementById("chk-symbol");
+  var chkKana = document.getElementById("chk-kana");
+
+  function getOpts() {
+    return {
+      alnum: chkAlnum.checked,
+      symbol: chkSymbol.checked,
+      kana: chkKana.checked
+    };
+  }
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.hidden = false;
+  }
+  function clearError() {
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  function runConversion(direction) {
+    clearError();
+    copyMsgEl.hidden = true;
+    var value = inputEl.value;
+    if (value.trim().length === 0) {
+      showError("変換する文字を入力してください");
+      outputEl.value = "";
+      return;
+    }
+    var opts = getOpts();
+    if (!opts.alnum && !opts.symbol && !opts.kana) {
+      showError("英数字・記号・カナのうち、変換する種類を1つ以上選んでください");
+      outputEl.value = "";
+      return;
+    }
+    outputEl.value = direction === "half" ? convertToHalf(value, opts) : convertToFull(value, opts);
+  }
+
+  document.getElementById("btn-to-half").addEventListener("click", function () {
+    runConversion("half");
+  });
+  document.getElementById("btn-to-full").addEventListener("click", function () {
+    runConversion("full");
+  });
+
+  document.getElementById("btn-copy").addEventListener("click", function () {
+    if (!outputEl.value) {
+      showError("コピーする結果がありません。先に変換してください");
+      return;
+    }
+    clearError();
+    var done = function () {
+      copyMsgEl.hidden = false;
+      setTimeout(function () { copyMsgEl.hidden = true; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(outputEl.value).then(done, function () {
+        outputEl.select();
+        document.execCommand("copy");
+        done();
+      });
+    } else {
+      outputEl.select();
+      document.execCommand("copy");
+      done();
+    }
+  });
+})();
+</script>
+</body>
+</html>
